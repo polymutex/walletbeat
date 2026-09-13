@@ -6,6 +6,7 @@ on:
     # below; only the trunk needs its own push trigger.
     branches:
       - beta
+      - ci-test
   pull_request:
     types:
       - opened
