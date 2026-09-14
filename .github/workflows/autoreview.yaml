@@ -38,46 +38,74 @@ jobs:
             const prNumber = pr.number;
             const headSha = pr.head.sha;
 
+            // The name of the CI workflow we wait on. This repository's CI is
+            // the `Check` workflow (see .github/workflows/check.yaml). We poll
+            // the *workflow runs* for the head commit rather than every check
+            // run, because the Auto Review workflow's own check runs would
+            // otherwise be counted and would never complete while this job is
+            // still running (a self-referential deadlock).
+            const ciWorkflow = "Check";
+
             const timeoutMs = 45 * 60 * 1000; // 45 min
             const pollIntervalMs = 20 * 1000;
             const start = Date.now();
 
-            let allRuns = [];
+            let ciRuns = [];
             let timedOut = false;
 
-            // Poll the check runs for the PR head commit until every run has
-            // reached a completed status (success, failure, cancelled, etc.).
-            // We require at least one run to exist so that a PR whose CI has
-            // not started yet is not mistaken for "all checks passed".
+            // Poll the workflow runs for the head commit until the CI workflow
+            // has at least one run that has reached a completed status
+            // (success, failure, cancelled, etc.).
             while (Date.now() - start < timeoutMs) {
-              const resp = await github.rest.checks.listForRef({
+              const resp = await github.rest.actions.listWorkflowRunsForRepo({
                 owner,
                 repo,
-                ref: headSha,
+                head_sha: headSha,
                 per_page: 100,
               });
-              allRuns = resp.data.check_runs;
+              ciRuns = resp.data.workflow_runs.filter((r) => r.name === ciWorkflow);
 
-              const hasRuns = allRuns.length > 0;
-              const allDone = allRuns.every((r) => r.status === "completed");
-              if (hasRuns && allDone) {
+              const hasRun = ciRuns.length > 0;
+              const allDone = ciRuns.every((r) => r.status === "completed");
+              if (hasRun && allDone) {
                 timedOut = false;
                 break;
               }
               await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
             }
 
-            if (!allRuns.every((r) => r.status === "completed")) {
+            if (!ciRuns.every((r) => r.status === "completed")) {
               timedOut = true;
             }
 
-            const completed = allRuns.filter((r) => r.status === "completed");
-            const failed = completed.filter((r) =>
+            // Resolve the completed CI workflow run(s) into individual check
+            // runs so we can report each named check (e.g. "Test: Vitest").
+            const completedRuns = ciRuns.filter((r) => r.status === "completed");
+            const allRuns = [];
+            for (const run of completedRuns) {
+              const jobs = await github.rest.actions.listJobsForWorkflowRun({
+                owner,
+                repo,
+                run_id: run.id,
+                per_page: 100,
+              });
+              for (const job of jobs.data.jobs) {
+                allRuns.push({
+                  name: job.name,
+                  conclusion: job.conclusion,
+                  status: job.status,
+                  id: job.id,
+                  check_run_id: job.check_run_id,
+                });
+              }
+            }
+
+            const failed = allRuns.filter((r) =>
               ["failure", "timed_out", "cancelled", "action_required", "startup_failure"].includes(
                 r.conclusion,
               ),
             );
-            const passed = completed.filter((r) =>
+            const passed = allRuns.filter((r) =>
               ["success", "neutral", "skipped"].includes(r.conclusion),
             );
 
@@ -89,7 +117,7 @@ jobs:
                 const ann = await github.rest.checks.listAnnotations({
                   owner,
                   repo,
-                  check_run_id: run.id,
+                  check_run_id: run.check_run_id || run.id,
                   per_page: 20,
                 });
                 annotations = ann.data;
@@ -128,12 +156,12 @@ jobs:
             } else if (failed.length === 0) {
               body =
                 header +
-                `✅ All **${completed.length}** CI checks passed.\n\n` +
+                `✅ All **${allRuns.length}** CI checks passed.\n\n` +
                 buildTable(allRuns);
             } else {
               body =
                 header +
-                `❌ **${failed.length}** of **${completed.length}** CI checks failed.\n\n` +
+                `❌ **${failed.length}** of **${allRuns.length}** CI checks failed.\n\n` +
                 buildTable(allRuns) +
                 buildFailures(failureDetails);
             }
