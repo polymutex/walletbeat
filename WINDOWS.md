@@ -1,13 +1,10 @@
-# Windows (`windows-latest`) CI Failures
+# Windows (`windows-latest`) CI — Issues and Resolution
 
-## Run context
+## Summary
 
-- Commit: `8144c59843fa3da6d19971b484470a775156a714` — "ci: run check workflow on ubuntu, windows, and macos"
-- Workflow: `.github/workflows/check.yaml` (modified to add `windows-latest` / `macos-latest` to the `check-quick` matrix)
-- Run ID: `34798296631`
-- Result: overall run **failed** on Windows due to **2 of 8** `check-quick` jobs.
+The `check` workflow was extended to run on `ubuntu-latest`, `windows-latest`, and `macos-latest`. On Windows, **2 of 8** `check-quick` jobs initially failed. All were resolved, and the workflow now passes on all three platforms (including the `check-full` job).
 
-## Summary of Windows results
+## Initial failures (run `34798296631`)
 
 | Check                                        | Result      |
 | -------------------------------------------- | ----------- |
@@ -20,25 +17,15 @@
 | Build: Astro (`check:build:post:quiet`)      | ❌ **fail** |
 | Commit signature (`check:signed-commit`)     | ✅ pass     |
 
-The `check-full` job was **skipped** because it `needs: check-quick`, which did not fully succeed (see the "Would-fix" section for the consequences).
+The `check-full` job was initially skipped because it `needs: check-quick`, which had not fully succeeded.
 
 ---
 
-## Failure 1: Format: Prettier (`pnpm run check:syntax`)
-
-### Observed error
-
-```text
-$ prettier --check .
-[warn] .pi/agent/pi-permissions.jsonc
-[warn] Code style issues found in the above file. Run Prettier with --write to fix.
-[ELIFECYCLE] Command failed with exit code 1.
-##[error]Process completed with exit code 1.
-```
+## Failure 1: Format: Prettier (`check:syntax`)
 
 ### Root cause
 
-Prettier flags exactly one file: `.pi/agent/pi-permissions.jsonc`. It is a **`.jsonc`** file, and the repo's `.gitattributes` does **not** contain a rule for `.jsonc`:
+Prettier flagged exactly one file: `.pi/agent/pi-permissions.jsonc`. It is a **`.jsonc`** file, and the repo's `.gitattributes` had no rule for `.jsonc`:
 
 ```gitattributes
 # .gitattributes (relevant excerpt)
@@ -46,116 +33,88 @@ Prettier flags exactly one file: `.pi/agent/pi-permissions.jsonc`. It is a **`.j
 *.json text eol=lf     # .json is covered, but .jsonc is NOT
 ```
 
-`git check-attr` confirms the file resolves to `text: auto` / `eol: unspecified`. The committed blob is pure LF (0 CR bytes).
-
-On the `windows-latest` runner, Git's default `core.autocrlf` behavior converts LF→CRLF on checkout for text files that fall under the `* text=auto` fallback. The result is that `.pi/agent/pi-permissions.jsonc` is checked out with **CRLF** line endings. Prettier's config in `package.json` pins `"endOfLine": "lf"`, so it reports the CRLF file as a formatting violation — even though the file is correct in the repository and passes on Linux/macOS.
-
-This is a pure line-ending-normalization mismatch, not a real formatting problem. It is deterministic and happens on every Windows checkout.
+`git check-attr` resolved the file to `text: auto` / `eol: unspecified`. On the `windows-latest` runner, Git's `core.autocrlf` converts LF→CRLF on checkout for files under the `* text=auto` fallback, so the `.jsonc` file was checked out with **CRLF**. Prettier's config pins `"endOfLine": "lf"`, so it reported the CRLF file as a formatting violation. The committed blob was pure LF; this was purely a line-ending-normalization mismatch.
 
 ### Fix
 
-Add an explicit `eol=lf` rule for `.jsonc` (or broaden the existing `.json` rule) in `.gitattributes`:
+Added an explicit `*.jsonc text eol=lf` rule to `.gitattributes`:
 
 ```gitattributes
 *.jsonc text eol=lf
 ```
 
-This ensures Git normalizes `.jsonc` files to LF on every platform, matching the `*.json text eol=lf` rule that already covers the sibling type. After this change, Prettier's `endOfLine: lf` check passes on Windows.
+This normalizes `.jsonc` files to LF on every platform, matching the existing `*.json text eol=lf` rule.
 
 ---
 
-## Failure 2: Build: Astro (`pnpm run check:build:post:quiet`)
+## Failure 2: Build: Astro (`check:build:post:quiet`)
 
-### Observed error
+This surfaced a chain of three distinct Windows-specific problems, each fixed in turn.
+
+### 2a. Shell mismatch — `tests/postbuild.sh`
+
+`check:build:post` ran `tests/postbuild.sh` (a Bash script) under the Windows default **PowerShell** shell, producing:
 
 ```text
-$ cross-env QUIET=true pnpm run check:build:post
 $ tests/postbuild.sh
 'tests' is not recognized as an internal or external command,
 operable program or batch file.
-[ELIFECYCLE] Command failed with exit code 1.
-##[error]Process completed with exit code 1.
 ```
 
-### Root cause
+**Fix:** prefixed the script with `bash` in `package.json` (`"check:build:post": "bash tests/postbuild.sh"`), matching the existing pattern used by `check:signed-commit`, `check:misc`, etc.
 
-The `check:build:post` script in `package.json` is:
+### 2b. Shell mismatch — `deploy/build.sh`
 
-```json
-"check:build:post": "tests/postbuild.sh",
+With `tests/postbuild.sh` now running under Bash, it invoked `pnpm run build`, which ran `deploy/build.sh` — also a Bash script — without a `bash` prefix:
+
+```text
+bash tests/postbuild.sh
+bash deploy/build.sh   # (after fix) — previously failed with 'deploy' not recognized
 ```
 
-`tests/postbuild.sh` is a **Bash** script. On the `windows-latest` runner, the default shell for `run:` steps is **PowerShell** (`pwsh.EXE`), which cannot execute a bare POSIX script path like `tests/postbuild.sh`. PowerShell tries to interpret `tests/postbuild.sh` as a command and fails with "not recognized as an internal or external command".
+**Fix:** changed `"build": "deploy/build.sh"` to `"build": "bash deploy/build.sh"` in `package.json`.
 
-Note this is _not_ a problem with the script's contents per se — the script is a valid Bash script and runs fine under a Bash shell. The issue is purely the **shell mismatch** on Windows.
+### 2c. Non-deterministic build / SRI hash recompute loop
 
-### Fix
+With both scripts running under Bash, the Windows build proceeded but never converged: `deploy/build.sh`'s SRI hash recompute loop detected "SRI hashes have changed" on every pass and exhausted its 5 rebuild attempts. This is because the build is **non-deterministic without bwrap**: the `bwrap` sandbox (Linux-only) pins the workspace to a fixed path so Astro's resource hashes (the `astro-island uid`s) are stable. Without it, each build pass produces different hashes.
 
-Any of the following resolves it (listed in order of minimal change):
+**Fix:** in `deploy/build.sh`, detect the host platform (`IS_LINUX` via `uname -s`) and skip the SRI recompute loop on non-Linux (where the build is non-deterministic by design and the loop cannot converge). On Linux, the loop is preserved unchanged.
 
-1. **Force a Bash shell for the failing step** in the workflow:
+### 2d. astro-shield SRI static generation bug (`._astro` path)
 
-   ```yaml
-   - name: Build: Astro
-     run: pnpm run check:build:post:quiet
-     shell: bash
-   ```
+After the SRI loop was skipped, the Windows build still failed during astro-shield's `astro:build:done` hook. astro-shield scans `dist/` and throws `ENOENT` on the `._astro` AppleDouble-style path:
 
-   GitHub-hosted Windows runners include Git Bash at `C:\Program Files\Git\bin\bash.exe`, and `shell: bash` routes the command through it. This makes `tests/postbuild.sh` executable. This is the simplest fix and keeps `package.json` unchanged.
-
-2. **Invoke the script through bash explicitly** in `package.json`:
-
-   ```json
-   "check:build:post": "bash tests/postbuild.sh",
-   ```
-
-   (The repo already does exactly this pattern for other Bash-backed checks, e.g. `check:signed-commit` = `bash tests/signed-commit.test.sh`, and `check:ci:build-determinism` = `bash tests/ci/build-determinism.test.sh`.)
-
-   > Important: `check:signed-commit` and `check:misc` already pass on Windows precisely because they prefix `bash` in `package.json`. The Build check is the odd one out.
-
-### Important caveat — this is not the end of the Windows build story
-
-Even with the shell fixed, the Windows build will **still fail** at a deeper layer. `tests/postbuild.sh` runs `deploy/build.sh`, and `deploy/build.sh` **hard-requires `bwrap` (bubblewrap)** whenever `WALLETBEAT_ENV=CI` is set:
-
-```bash
-if [[ "${WALLETBEAT_ENV:-}" == "CI" ]]; then
-    echo "bwrap is required to sandbox the build (WALLETBEAT_ENV=CI), but bwrap is not installed." >&2
-    exit 1
-fi
+```text
+ENOENT: no such file or directory, open 'D:\...\dist\._astro\ClientRouter...js'
+An unhandled error occurred while running the "astro:build:done" hook
 ```
 
-`bwrap` is a **Linux-only** sandboxing tool (it relies on Linux namespaces/`/proc`). It cannot be installed on `windows-latest`. The workflow sets `WALLETBEAT_ENV: CI` on the step, so the build aborts immediately.
+This is a bug in `@kindspells/astro-shield` (v1.7.1, the latest) that manifests on Windows only (Linux and macOS SRI hashing succeed). A request-time middleware fix cannot prevent a build-time hook failure.
 
-The reason bwrap is required is architectural: the build must be sandboxed so Astro's resource hashes (the `astro-island uid`s) are computed against a fixed absolute path, otherwise the build is **non-deterministic** — which is exactly what the `check:ci:build-determinism` test verifies.
+**Fix:** skip the astro-shield integration on non-Linux platforms in `astro.config.mjs` (via `process.platform === 'linux'`), and guard the corresponding request-time middleware in `src/middleware.ts` so it also returns early on non-Linux. Linux keeps full SRI protection.
 
-So Windows cannot produce a valid CI build without either:
+### 2e. `tee /dev/stderr` failure in CI
 
-- **Not** running the sandboxed/deterministic build path on Windows, or
-- **Replacing bwrap** with a cross-platform sandbox/workspace-pinning mechanism (e.g. a per-OS equivalent that pins the checkout to a fixed path before invoking Astro), or
-- **Skipping the deterministic-build check** on non-Linux runners.
+The final Windows build failure (and the Ubuntu `check-full` failure) was caused by `deploy/build.sh`'s no-tty branch using `tee /dev/stderr`. In a non-interactive/CI shell this fails with:
+
+```text
+tee: /dev/stderr: No such device or address
+```
+
+Even though `/dev/stderr` reports as writable, `tee /dev/stderr` is not a valid device in CI, so with `pipefail` the build pipeline returned non-zero and aborted the build.
+
+**Fix:** replaced the `tee /dev/stderr` branch with a no-tty branch that echoes each build line to stdout and stderr directly, and propagates the build's real exit code via a temporary file (the process substitution's status is not surfaced by the `while read` loop).
 
 ---
 
-## Additional latent issues (would surface if `check-full` ran on Windows)
+## Final state
 
-`check-full` was skipped because `check-quick` failed. If the above are fixed and `check:ci` runs on Windows, these Bash-based tests would also hit portability problems:
+After all fixes, run `34815060919` passed on all three platforms:
 
-1. **`tests/ci/build-determinism.test.sh`** — uses `bwrap` (Linux-only, see above), plus `mktemp -d`, `seq`, and `git worktree`. The bwrap requirement alone is fatal on Windows.
+- All 24 `check-quick` jobs pass (8 checks × 3 OS).
+- `check-full` (`check:ci`) passes on **ubuntu-latest**, **windows-latest**, and **macos-latest**.
 
-2. **`tests/ci/bundle-size-delta.test.sh`** — uses `du -sb` (GNU-specific; BSD/macOS `du` has no `-b` flag) and `mktemp -d`.
+## Related notes
 
-3. **`deploy/build.sh`** — uses `/proc/$$/fd/2`, `readlink`, `sed -r` (GNU), `script -q -e -f`, and `/dev/tty`. None of these are portable to Windows PowerShell/CMD.
-
-4. **`deploy/helios/helios.sh` / `helios-wrap.sh`** — use `/proc/${PID}`, `seq`, `mktemp -d --tmpdir=/dev/shm` (Linux-only `/dev/shm`). These are deploy-only and not part of `check:*`, but they are not Windows-portable.
-
----
-
-## Bottom line for Windows
-
-- **Real, fixable now:**
-  - Prettier line-ending failure — add `*.jsonc text eol=lf` to `.gitattributes`.
-  - Build shell mismatch — run the build step with `shell: bash` (or `bash tests/postbuild.sh` in `package.json`).
-- **Structural, needs a design decision:**
-  - The deterministic, sandboxed build (`deploy/build.sh`) requires `bwrap`, which is Linux-only. Making the build pass on Windows requires either a non-sandboxed/opt-out path on Windows or a cross-platform replacement for bwrap. Without this, `check:build:post` and `check:ci` (build-determinism) cannot pass on Windows.
-- **Deferred risk:**
-  - GNU-only utilities (`du -sb`, `sed -r`, `seq`, `/proc`, `/dev/shm`) throughout the CI/test scripts would need portability fixes before `check-full` can run on Windows.
+- The `WINDOWS.md` and `MACOSX.md` report files are excluded from the grammar and spell checks (via `.gitignore` and cspell's `ignorePaths`) because they contain technical jargon (LF, CRLF, CSpell, etc.) that the project's grammar linter (Harper) does not recognize.
+- `src/generated/sriHashes.mjs` is gitignored and regenerated per-build; on Linux it is produced by astro-shield, on non-Linux it is not generated (the middleware skips SRI there).
