@@ -66,15 +66,21 @@ fi
 # DIAGNOSTIC: record the path the build sees inside the sandbox. Writes to the
 # worktree (visible from the host) so the determinism test can verify whether
 # the sandbox normalized the source path.
-node -e "
-	const { realpathSync } = require('fs')
-	const out = {
-		cwd: process.cwd(),
-		realpathCwd: realpathSync(process.cwd()),
-		realpathSrc: realpathSync('src/components/WalletTest.svelte'),
-	}
-	require('fs').writeFileSync('.wb-build-path.json', JSON.stringify(out, null, 2))
-" 2>/dev/null || true
+# DIAGNOSTIC: record the path the build sees inside the sandbox. Writes to the
+# worktree (visible from the host) so the determinism test can verify whether
+# the sandbox normalized the source path. Only runs inside the sandbox so it
+# never pollutes the main repo checkout.
+if [[ "${WALLETBEAT_RUNNING_IN_SANDBOX:-}" == "true" ]]; then
+	node -e "
+		const { realpathSync } = require('fs')
+		const out = {
+			cwd: process.cwd(),
+			realpathCwd: realpathSync(process.cwd()),
+			realpathSrc: realpathSync('src/components/WalletTest.svelte'),
+		}
+		require('fs').writeFileSync('.wb-build-path.json', JSON.stringify(out, null, 2))
+	" 2>/dev/null || true
+fi
 
 # Ensure dependencies are installed before building.
 if [[ ! -d node_modules ]] || [[ -z "$(ls -A node_modules 2>/dev/null)" ]]; then
