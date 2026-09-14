@@ -22,7 +22,7 @@ if [[ "${WALLETBEAT_RUNNING_IN_SANDBOX:-}" != "true" ]]; then
 		# Mask the worktree's real path (e.g. /tmp/tmp.XXX/build-N) so the source
 		# is reachable ONLY at /tmp/wb-build. Because /tmp is bind-mounted, the
 		# worktree would otherwise be reachable at BOTH /tmp/wb-build (the bind)
-		# and its real path; Vite/Astro can then occasionally resolve a source
+		# and its real path; the bundler can then occasionally resolve a source
 		# file via the real path, embedding a per-worktree absolute path into the
 		# `astro-island uid` and making the build non-deterministic. Masking the
 		# real path removes the ambiguity.
