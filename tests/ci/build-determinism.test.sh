@@ -113,8 +113,8 @@ for name in $(seq 2 "$BUILD_COUNT"); do
 		continue
 	fi
 	log "Debug: build-1 vs build-$name differing files:"
-	diff -rq "$WORKTREE_ROOT/build-1/dist" "$WORKTREE_ROOT/build-$name/dist" 2>&1 \
-		| while read -r line; do log "  $line"; done
+	diff -rq "$WORKTREE_ROOT/build-1/dist" "$WORKTREE_ROOT/build-$name/dist" 2>&1 |
+		while read -r line; do log "  $line"; done
 	# Show first differing lines of up to 3 files.
 	count=0
 	while read -r line; do
