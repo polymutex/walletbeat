@@ -33,6 +33,10 @@ pnpm-debug.log*
 # For playing with claude code
 scrap.md
 
+# Cross-platform CI failure reports (excluded from grammar checks)
+WINDOWS.md
+MACOSX.md
+
 # Python cache
 __pycache__
 **/__pycache__
