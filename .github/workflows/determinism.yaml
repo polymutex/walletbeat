@@ -1,0 +1,36 @@
+name: Determinism
+
+on:
+  push:
+    branches:
+      - nondeterminism
+
+jobs:
+  build-determinism:
+    name: Build determinism
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.3
+        with:
+          fetch-depth: 0
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y $(cat deploy/debian-packages.txt)
+        env:
+          DEBIAN_FRONTEND: noninteractive
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6.0.9
+      - name: Install Node.js
+        uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build determinism
+        run: pnpm run check:ci:build-determinism
+        env:
+          WALLETBEAT_ENV: CI
+          WALLETBEAT_DETERMINISM_BUILD_COUNT: 10

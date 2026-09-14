@@ -22,8 +22,9 @@ set -euo pipefail
 # It is invoked only by the dedicated CI workflow via `pnpm run check:ci`.
 # It can be invoked manually with `pnpm run check:ci:build-determinism`.
 
-# Number of parallel builds to compare.
-BUILD_COUNT=4
+# Number of parallel builds to compare. Overridable via env (CI uses more to
+# exercise the non-determinism more often).
+BUILD_COUNT="${WALLETBEAT_DETERMINISM_BUILD_COUNT:-4}"
 
 log() {
 	echo "[Build determinism]" "$@" >&2
@@ -102,5 +103,29 @@ fi
 log "FAIL: found different bundle CID hashes (build is non-deterministic):"
 for name in $(seq 1 "$BUILD_COUNT"); do
 	log "  build-$name: ${cids[$((name - 1))]}"
+done
+
+# Debug: dump the exact differing files/bytes between the first build and each
+# differing build. This is only for diagnosing the root cause.
+log "Debug: dumping diffs against build-1..."
+for name in $(seq 2 "$BUILD_COUNT"); do
+	if [[ "${cids[$((name - 1))]}" == "$first" ]]; then
+		continue
+	fi
+	log "Debug: build-1 vs build-$name differing files:"
+	diff -rq "$WORKTREE_ROOT/build-1/dist" "$WORKTREE_ROOT/build-$name/dist" 2>&1 \
+		| while read -r line; do log "  $line"; done
+	# Show first differing lines of up to 3 files.
+	count=0
+	while read -r line; do
+		if [[ "$line" =~ ^Files[[:space:]]+(.*)[[:space:]]and[[:space:]]+(.*)[[:space:]]differ$ ]]; then
+			f1="${BASH_REMATCH[1]}"
+			f2="${BASH_REMATCH[2]}"
+			log "Debug: diff $f1"
+			diff "$f1" "$f2" 2>&1 | head -c 600 | while read -r dl; do log "    $dl"; done
+			count=$((count + 1))
+			if [[ "$count" -ge 3 ]]; then break; fi
+		fi
+	done < <(diff -rq "$WORKTREE_ROOT/build-1/dist" "$WORKTREE_ROOT/build-$name/dist" 2>&1)
 done
 exit 1
