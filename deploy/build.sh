@@ -68,9 +68,11 @@ fi
 # the sandbox normalized the source path.
 # DIAGNOSTIC: record the path the build sees inside the sandbox. Writes to the
 # worktree (visible from the host) so the determinism test can verify whether
-# the sandbox normalized the source path. Only runs inside the sandbox so it
-# never pollutes the main repo checkout.
-if [[ "${WALLETBEAT_RUNNING_IN_SANDBOX:-}" == "true" ]]; then
+# the sandbox normalized the source path. Only runs for the determinism test
+# (WALLETBEAT_MUST_INSTALL_DEPENDENCIES_CLEANLY=true) so it never pollutes the
+# main repo checkout.
+if [[ "${WALLETBEAT_RUNNING_IN_SANDBOX:-}" == "true" ]] &&
+	[[ "${WALLETBEAT_MUST_INSTALL_DEPENDENCIES_CLEANLY:-}" == "true" ]]; then
 	node -e "
 		const { realpathSync } = require('fs')
 		const out = {

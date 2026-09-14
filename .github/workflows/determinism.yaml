@@ -30,8 +30,8 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Build determinism (full check:ci context)
-        run: pnpm run check:ci
+      - name: Build determinism
+        run: pnpm run check:ci:build-determinism
         env:
           WALLETBEAT_ENV: CI
           WALLETBEAT_DETERMINISM_BUILD_COUNT: 10
