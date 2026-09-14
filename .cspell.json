@@ -715,6 +715,8 @@
 		"resources/files/**",
 		"src/generated/**",
 		"src/legacy/**",
+		"WINDOWS.md",
+		"MACOSX.md",
 		"resources/contracts/cache/**",
 		"resources/contracts/lib/**",
 		"resources/contracts/out/**",
