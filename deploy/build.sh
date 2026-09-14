@@ -113,11 +113,21 @@ do_build() {
 }
 
 need_rebuild=''
-while IFS= read -r line; do
-	if echo "$line" | grep -qE --line-buffered 'SRI hashes have changed|Unable to obtain SRI hash'; then
-		need_rebuild='SRI hashes need recomputing'
-	fi
-done < <(do_build)
+# The SRI rebuild loop exists to make the build deterministic: it detects
+# when the SRI hashes changed between passes and rebuilds until they
+# stabilize. This only converges when the build is sandboxed via bwrap (which
+# pins the workspace to a fixed path). bwrap is Linux-only, so on non-Linux
+# hosts the build is non-deterministic by design and this loop would never
+# converge. Skip it there and accept the first pass.
+if [[ "$IS_LINUX" == true ]]; then
+	while IFS= read -r line; do
+		if echo "$line" | grep -qE --line-buffered 'SRI hashes have changed|Unable to obtain SRI hash'; then
+			need_rebuild='SRI hashes need recomputing'
+		fi
+	done < <(do_build)
+else
+	do_build
+fi
 
 if [[ -n "$need_rebuild" ]]; then
 	export WALLETBEAT_BUILD_ATTEMPTS_LEFT="$(($((attempts_left)) - 1))"
