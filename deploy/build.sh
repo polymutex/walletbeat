@@ -97,6 +97,13 @@ has_tty() {
 }
 
 do_build() {
+	if [[ "$IS_LINUX" == false ]]; then
+		# On non-Linux there is no tty and /dev/stderr may not be a usable
+		# tee target (e.g. Windows Git Bash). Run the build directly so its
+		# exit code propagates unchanged.
+		WALLETBEAT_BUILD_DO_NOT_RECURSE=true pnpm astro build 2>&1
+		return
+	fi
 	if has_tty && hash script &>/dev/null; then
 		# Using `script` preserves terminal colors.
 		WALLETBEAT_BUILD_DO_NOT_RECURSE=true script -q -e -f -c 'pnpm astro build' /dev/null 2>&1 | tee /dev/tty | sed -r "s/\x1B\[[0-9;]*[A-Za-z]//g"
