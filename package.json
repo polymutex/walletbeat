@@ -5,7 +5,7 @@
 	"packageManager": "pnpm@11.19.0",
 	"scripts": {
 		"astro": "cross-env ASTRO_TELEMETRY_DISABLED=1 astro",
-		"build": "deploy/build.sh",
+		"build": "bash deploy/build.sh",
 		"check:all": "pnpm run \"/^check:(astro|vitest|lint|syntax|spelling:quiet|misc|build:post:quiet|signed-commit:quiet)$/\"",
 		"check:ci": "cross-env WALLETBEAT_ENV=CI pnpm run \"/^check:(all|ci:.*)$/\"",
 		"check:quick": "pnpm run \"/^check:(lint:quick|syntax|spelling:quiet|misc)$/\"",
