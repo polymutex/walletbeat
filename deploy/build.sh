@@ -19,17 +19,6 @@ if [[ "${WALLETBEAT_RUNNING_IN_SANDBOX:-}" != "true" ]]; then
 			# mounting a tmpfs on top of `node_modules`:
 			tmpfs_arg=(--tmpfs /tmp/wb-build/node_modules)
 		fi
-		# Mask the worktree's real path (e.g. /tmp/tmp.XXX/build-N) so the source
-		# is reachable ONLY at /tmp/wb-build. Because /tmp is bind-mounted, the
-		# worktree would otherwise be reachable at BOTH /tmp/wb-build (the bind)
-		# and its real path; Vite/Astro can then occasionally resolve a source
-		# file via the real path, embedding a per-worktree absolute path into the
-		# `astro-island uid` and making the build non-deterministic. Masking the
-		# real path removes the ambiguity.
-		mask_worktree_arg=()
-		if [[ "$PWD" == /tmp/* ]]; then
-			mask_worktree_arg=(--tmpfs "$PWD")
-		fi
 		if [[ "${WALLETBEAT_ENV:-}" == "CI" ]]; then
 			sudo sysctl -w kernel.unprivileged_userns_clone=1 &>/dev/null || true
 			sudo sysctl -w user.max_user_namespaces=4096 &>/dev/null || true
@@ -44,7 +33,6 @@ if [[ "${WALLETBEAT_RUNNING_IN_SANDBOX:-}" != "true" ]]; then
 			--bind /tmp /tmp \
 			--bind "${HOME:-/tmp}" "${HOME:-/tmp}" \
 			--bind "$PWD" /tmp/wb-build \
-			"${mask_worktree_arg[@]}" \
 			"${tmpfs_arg[@]}" \
 			--dev /dev \
 			--proc /proc \
