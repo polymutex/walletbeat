@@ -6,6 +6,14 @@
 
 set -euo pipefail
 
+# Detect the host platform. bwrap (bubblewrap) is Linux-only (it depends on
+# Linux namespaces and /proc), so on non-Linux hosts we cannot sandbox the
+# build. In that case we skip the bwrap requirement and build unsandboxed.
+IS_LINUX=false
+if [[ "$(uname -s)" == "Linux" ]]; then
+	IS_LINUX=true
+fi
+
 # Optional sandboxing via bubblewrap. This is essential to keep the build
 # deterministic, as Astro otherwise computes its resource hashes
 # (the `astro-island uid`s) based on the absolute path of where the files
@@ -41,20 +49,20 @@ if [[ "${WALLETBEAT_RUNNING_IN_SANDBOX:-}" != "true" ]]; then
 			--setenv WALLETBEAT_RUNNING_IN_SANDBOX true \
 			-- bash "$0" "$@"
 	fi
-	if [[ "${WALLETBEAT_MUST_INSTALL_DEPENDENCIES_CLEANLY:-}" == "true" ]]; then
+	if [[ "${WALLETBEAT_MUST_INSTALL_DEPENDENCIES_CLEANLY:-}" == "true" ]] && [[ "$IS_LINUX" == true ]]; then
 		echo "bwrap is required to sandbox the build (WALLETBEAT_MUST_INSTALL_DEPENDENCIES_CLEANLY=true), but bwrap is not installed." >&2
 		exit 1
 	fi
-	if [[ "${WALLETBEAT_BUILD_MUST_BE_SANDBOXED:-}" == "true" ]]; then
+	if [[ "${WALLETBEAT_BUILD_MUST_BE_SANDBOXED:-}" == "true" ]] && [[ "$IS_LINUX" == true ]]; then
 		echo "bwrap is required to sandbox the build (WALLETBEAT_BUILD_MUST_BE_SANDBOXED=true), but bwrap is not installed." >&2
 		exit 1
 	fi
-	if [[ "${WALLETBEAT_ENV:-}" == "CI" ]]; then
+	if [[ "${WALLETBEAT_ENV:-}" == "CI" ]] && [[ "$IS_LINUX" == true ]]; then
 		echo "bwrap is required to sandbox the build (WALLETBEAT_ENV=CI), but bwrap is not installed." >&2
 		exit 1
 	fi
 	# Otherwise, run build unsandboxed anyway.
-	if [[ "${WALLETBEAT_BUILD_TEST:-}" == true ]]; then
+	if [[ "${WALLETBEAT_BUILD_TEST:-}" == true ]] && [[ "$IS_LINUX" == false ]]; then
 		echo 'bwrap is not available; build will be non-deterministic.' >&2
 	fi
 fi
@@ -74,6 +82,11 @@ if [[ -n "${WALLETBEAT_BUILD_ATTEMPTS_LEFT:-}" ]]; then
 fi
 
 has_tty() {
+	if [[ "$IS_LINUX" == false ]]; then
+		# The tty detection below relies on Linux /proc. On other platforms we
+		# treat the build as non-interactive so we take the portable branch.
+		return 1
+	fi
 	if [[ ! -e /dev/tty ]]; then
 		return 1
 	fi

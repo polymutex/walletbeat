@@ -29,6 +29,15 @@ log() {
 	echo "[Build determinism]" "$@" >&2
 }
 
+# This test only makes sense where bwrap (bubblewrap) is available to sandbox
+# each build to a fixed path. bwrap is Linux-only, so on other platforms the
+# build would be non-deterministic by design and this test would always fail.
+# Skip it when not running on Linux.
+if [[ "$(uname -s)" != "Linux" ]]; then
+	log "Not running on Linux; skipping build-determinism test (bwrap is Linux-only)."
+	exit 0
+fi
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HEAD="$(git -C "$ROOT" rev-parse HEAD)"
 
