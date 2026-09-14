@@ -21,32 +21,89 @@ concurrency:
 
 jobs:
   check-quick:
-    name: ${{ matrix.name }}
-    runs-on: ubuntu-latest
+    name: ${{ matrix.os }} / ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: 'Check: Astro'
+          - os: ubuntu-latest
+            name: 'Check: Astro'
             command: pnpm run check:astro
-          - name: 'Test: Vitest'
+          - os: windows-latest
+            name: 'Check: Astro'
+            command: pnpm run check:astro
+          - os: macos-latest
+            name: 'Check: Astro'
+            command: pnpm run check:astro
+          - os: ubuntu-latest
+            name: 'Test: Vitest'
             command: pnpm run check:vitest
-          - name: 'Lint: ESLint'
+          - os: windows-latest
+            name: 'Test: Vitest'
+            command: pnpm run check:vitest
+          - os: macos-latest
+            name: 'Test: Vitest'
+            command: pnpm run check:vitest
+          - os: ubuntu-latest
+            name: 'Lint: ESLint'
             command: pnpm run check:lint
-          - name: 'Format: Prettier'
+          - os: windows-latest
+            name: 'Lint: ESLint'
+            command: pnpm run check:lint
+          - os: macos-latest
+            name: 'Lint: ESLint'
+            command: pnpm run check:lint
+          - os: ubuntu-latest
+            name: 'Format: Prettier'
             command: pnpm run check:syntax
-          - name: 'Spell check: CSpell'
+          - os: windows-latest
+            name: 'Format: Prettier'
+            command: pnpm run check:syntax
+          - os: macos-latest
+            name: 'Format: Prettier'
+            command: pnpm run check:syntax
+          - os: ubuntu-latest
+            name: 'Spell check: CSpell'
             command: pnpm run check:spelling:quiet
-          - name: Other checks
+          - os: windows-latest
+            name: 'Spell check: CSpell'
+            command: pnpm run check:spelling:quiet
+          - os: macos-latest
+            name: 'Spell check: CSpell'
+            command: pnpm run check:spelling:quiet
+          - os: ubuntu-latest
+            name: Other checks
             command: pnpm run check:misc
-          - name: 'Build: Astro'
+          - os: windows-latest
+            name: Other checks
+            command: pnpm run check:misc
+          - os: macos-latest
+            name: Other checks
+            command: pnpm run check:misc
+          - os: ubuntu-latest
+            name: 'Build: Astro'
             command: pnpm run check:build:post:quiet
-          - name: Commit signature
+          - os: windows-latest
+            name: 'Build: Astro'
+            command: pnpm run check:build:post:quiet
+          - os: macos-latest
+            name: 'Build: Astro'
+            command: pnpm run check:build:post:quiet
+          - os: ubuntu-latest
+            name: Commit signature
+            command: pnpm run check:signed-commit
+          - os: windows-latest
+            name: Commit signature
+            command: pnpm run check:signed-commit
+          - os: macos-latest
+            name: Commit signature
             command: pnpm run check:signed-commit
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.3
-      - name: Install packages
+      - name: Install packages (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y $(cat deploy/debian-packages.txt)
@@ -66,16 +123,24 @@ jobs:
         env:
           WALLETBEAT_ENV: CI
   check-full:
-    name: 'Run all CI tests'
-    runs-on: ubuntu-latest
+    name: 'Run all CI tests (${{ matrix.os }})'
+    runs-on: ${{ matrix.os }}
     needs:
       - check-quick
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.3
         with:
           fetch-depth: 0
-      - name: Install packages
+      - name: Install packages (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y $(cat deploy/debian-packages.txt)
@@ -92,3 +157,5 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Run all checks
         run: pnpm run check:ci
+        env:
+          WALLETBEAT_ENV: CI
