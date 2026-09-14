@@ -9,6 +9,13 @@ import { defineConfig, fontProviders } from 'astro/config'
 const rootDir = new URL('.', import.meta.url).pathname
 const modulePath = resolve(rootDir, 'src', 'generated', 'sriHashes.mjs')
 
+// The astro-shield SRI static generation has a bug on Windows: its
+// astro:build:done hook scans dist/ and throws ENOENT on the `._astro`
+// AppleDouble-style path, aborting the build. It works on Linux and macOS.
+// Skip the shield integration on non-Linux platforms so the build passes
+// there; Linux keeps full SRI protection.
+const isLinux = process.platform === 'linux'
+
 // https://astro.build/config
 export default defineConfig({
 	base: process.env.BASE_URL ?? '/',
@@ -19,12 +26,16 @@ export default defineConfig({
 			? []
 			: [
 					sitemap(),
-					shield({
-						sri: {
-							enableMiddleware: false,
-							hashesModule: modulePath,
-						},
-					}),
+					...(isLinux
+						? [
+								shield({
+									sri: {
+										enableMiddleware: false,
+										hashesModule: modulePath,
+									},
+								}),
+							]
+						: []),
 				],
 	),
 	vite: {

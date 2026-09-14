@@ -158,6 +158,14 @@ export const onRequest = defineMiddleware(async (context, next) => {
 		return next()
 	}
 
+	// The astro-shield integration is disabled on non-Linux platforms (see
+	// astro.config.mjs) because its SRI static generation throws on Windows.
+	// Without the integration, sriHashes.mjs is not generated, so there is
+	// nothing to enforce here; skip the shield middleware accordingly.
+	if (process.platform !== 'linux') {
+		return next()
+	}
+
 	const shouldBeShielded = shouldShield(context.url.pathname)
 
 	if (shouldBeShielded === null) {
