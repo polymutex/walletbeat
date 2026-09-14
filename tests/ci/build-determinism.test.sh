@@ -76,6 +76,12 @@ if [[ "$failed" -ne 0 ]]; then
 fi
 
 log "All builds succeeded. Computing bundle CIDs..."
+# DIAGNOSTIC: read the path each build saw inside the sandbox.
+for name in $(seq 1 "$BUILD_COUNT"); do
+	if [[ -f "$WORKTREE_ROOT/build-$name/.wb-build-path.json" ]]; then
+		log "Debug: build-$name sandbox path: $(cat "$WORKTREE_ROOT/build-$name/.wb-build-path.json" | tr '\n' ' ')"
+	fi
+done
 cids=()
 for name in $(seq 1 "$BUILD_COUNT"); do
 	dir="$WORKTREE_ROOT/build-$name"
@@ -128,4 +134,5 @@ for name in $(seq 2 "$BUILD_COUNT"); do
 		fi
 	done < <(diff -rq "$WORKTREE_ROOT/build-1/dist" "$WORKTREE_ROOT/build-$name/dist" 2>&1)
 done
+
 exit 1
