@@ -1,6 +1,7 @@
 name: Determinism
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - nondeterminism
