@@ -109,13 +109,24 @@ do_build() {
 		WALLETBEAT_BUILD_DO_NOT_RECURSE=true script -q -e -f -c 'pnpm astro build' /dev/null 2>&1 | tee /dev/tty | sed -r "s/\x1B\[[0-9;]*[A-Za-z]//g"
 	elif has_tty; then
 		WALLETBEAT_BUILD_DO_NOT_RECURSE=true pnpm astro build 2>&1 | tee /dev/tty
-	elif [[ -w /dev/stderr ]]; then
-		WALLETBEAT_BUILD_DO_NOT_RECURSE=true pnpm astro build 2>&1 | tee /dev/stderr
 	else
+		# No tty (e.g. CI). Do not tee to /dev/stderr here: even though
+		# /dev/stderr may report as writable, `tee /dev/stderr` fails with
+		# "No such device or address" in a non-interactive/CI shell, which
+		# (with pipefail) makes the pipeline return non-zero and aborts the
+		# build. Instead, echo each line to stdout and stderr directly and
+		# propagate the build's own exit code (captured via a temp file, since
+		# the process substitution's status is not surfaced by the while loop).
+		local status_file
+		status_file="$(mktemp)"
 		while IFS= read -r line; do
 			echo "$line"
 			echo "$line" >&2
-		done < <(WALLETBEAT_BUILD_DO_NOT_RECURSE=true pnpm astro build 2>&1)
+		done < <({ set +e; WALLETBEAT_BUILD_DO_NOT_RECURSE=true pnpm astro build 2>&1; echo "$?" > "$status_file"; })
+		local build_status
+		build_status="$(cat "$status_file")"
+		rm -f "$status_file"
+		return "$build_status"
 	fi
 }
 
