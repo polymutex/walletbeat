@@ -262,7 +262,6 @@ jobs:
                 pull_number: prNumber,
                 reviewers: ["copilot-pull-request-reviewer[bot]"],
               });
-              console.log("Requested Copilot code review for PR #" + prNumber);
             } catch (e) {
               // Copilot code review is not available for every account/repo.
               // Surface a clear message rather than failing the workflow.
@@ -270,5 +269,26 @@ jobs:
                 "Could not request Copilot code review: " + (e.message || String(e)) +
                 ". If Copilot code review is not enabled for this repository, " +
                 "the review-request step is a no-op.",
+              );
+              return;
+            }
+
+            // The requestReviewers endpoint can return 2xx even when Copilot
+            // code review is not enabled for the account/repo, silently never
+            // delivering a review. Verify the request actually registered and
+            // warn clearly if it did not, so the step is never a silent no-op.
+            await new Promise((resolve) => setTimeout(resolve, 10000));
+            const { data: check } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+            const registered = (check.requested_reviewers || []).some(
+              (r) => r.login === "copilot-pull-request-reviewer[bot]",
+            );
+            if (registered) {
+              console.log("Requested Copilot code review for PR #" + prNumber);
+            } else {
+              core.warning(
+                "Copilot code review request was accepted but the Copilot reviewer did not " +
+                "register. This usually means Copilot code review is not enabled for this " +
+                "repository or account (it requires a Copilot license). The CI summary has " +
+                "still been posted; only the Copilot review step is a no-op.",
               );
             }
