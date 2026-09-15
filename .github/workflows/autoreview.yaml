@@ -1,0 +1,294 @@
+name: Auto Review
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - review_requested
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: read
+  actions: read
+
+# Keep one Auto Review run per PR. We never cancel an in-flight run so a
+# summary that is still being gathered is not dropped mid-way.
+concurrency:
+  group: autoreview-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  wait-for-ci:
+    name: Wait for CI and summarize
+    if: ${{ github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Wait for all CI checks to complete
+        uses: actions/github-script@v7
+        id: ci
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pr = context.payload.pull_request;
+            const prNumber = pr.number;
+            const headSha = pr.head.sha;
+
+            // The name of the CI workflow we wait on. This repository's CI is
+            // the `Check` workflow (see .github/workflows/check.yaml). We poll
+            // the *workflow runs* for the head commit rather than every check
+            // run, because the Auto Review workflow's own check runs would
+            // otherwise be counted and would never complete while this job is
+            // still running (a self-referential deadlock).
+            const ciWorkflow = "Check";
+
+            const timeoutMs = 45 * 60 * 1000; // 45 min
+            const pollIntervalMs = 20 * 1000;
+            const start = Date.now();
+
+            let ciRuns = [];
+            let timedOut = false;
+
+            // Poll the workflow runs for the head commit until the CI workflow
+            // has at least one run that has reached a completed status
+            // (success, failure, cancelled, etc.).
+            while (Date.now() - start < timeoutMs) {
+              const resp = await github.rest.actions.listWorkflowRunsForRepo({
+                owner,
+                repo,
+                head_sha: headSha,
+                per_page: 100,
+              });
+              ciRuns = resp.data.workflow_runs.filter((r) => r.name === ciWorkflow);
+
+              const hasRun = ciRuns.length > 0;
+              const allDone = ciRuns.every((r) => r.status === "completed");
+              if (hasRun && allDone) {
+                timedOut = false;
+                break;
+              }
+              await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+            }
+
+            if (!ciRuns.every((r) => r.status === "completed")) {
+              timedOut = true;
+            }
+
+            // Resolve the completed CI workflow run(s) into individual check
+            // runs so we can report each named check (e.g. "Test: Vitest").
+            const completedRuns = ciRuns.filter((r) => r.status === "completed");
+            const allRuns = [];
+            for (const run of completedRuns) {
+              const jobs = await github.rest.actions.listJobsForWorkflowRun({
+                owner,
+                repo,
+                run_id: run.id,
+                per_page: 100,
+              });
+              for (const job of jobs.data.jobs) {
+                allRuns.push({
+                  name: job.name,
+                  conclusion: job.conclusion,
+                  status: job.status,
+                  id: job.id,
+                  check_run_id: job.check_run_id,
+                });
+              }
+            }
+
+            const failed = allRuns.filter((r) =>
+              ["failure", "timed_out", "cancelled", "action_required", "startup_failure"].includes(
+                r.conclusion,
+              ),
+            );
+            const passed = allRuns.filter((r) =>
+              ["success", "neutral", "skipped"].includes(r.conclusion),
+            );
+
+            // Gather annotations for each failed run to surface the actual errors.
+            const failureDetails = [];
+            for (const run of failed) {
+              let annotations = [];
+              try {
+                const ann = await github.rest.checks.listAnnotations({
+                  owner,
+                  repo,
+                  check_run_id: run.check_run_id || run.id,
+                  per_page: 20,
+                });
+                annotations = ann.data;
+              } catch (e) {
+                annotations = [];
+              }
+              const detail = annotations
+                .map(
+                  (a) =>
+                    `${a.path ? `\`${a.path}${a.start_line ? `:${a.start_line}` : ""}\` ` : ""}${a.message}`,
+                )
+                .slice(0, 10);
+              failureDetails.push({
+                name: run.name,
+                conclusion: run.conclusion,
+                details: detail,
+              });
+            }
+
+            // Build the markdown summary comment.
+            const marker = "<!-- AUTOREVIEW-CI-SUMMARY -->";
+            const header = `## 🤖 Auto Review: CI Summary\n${marker}\n\n`;
+
+            let body;
+            if (allRuns.length === 0 && timedOut) {
+              body =
+                header +
+                "⚠️ No CI checks were detected for this pull request before the wait timed out. " +
+                "The checks may not have started. Review the run manually below.";
+            } else if (timedOut) {
+              body =
+                header +
+                "⚠️ Timed out waiting for CI to finish. Below is the state of the checks at timeout:\n\n" +
+                buildTable(allRuns) +
+                buildFailures(failureDetails);
+            } else if (failed.length === 0) {
+              body =
+                header +
+                `✅ All **${allRuns.length}** CI checks passed.\n\n` +
+                buildTable(allRuns);
+            } else {
+              body =
+                header +
+                `❌ **${failed.length}** of **${allRuns.length}** CI checks failed.\n\n` +
+                buildTable(allRuns) +
+                buildFailures(failureDetails);
+            }
+
+            function buildTable(runs) {
+              const rows = runs.map((r) => {
+                const status = r.conclusion || r.status;
+                const icon = status === "success" ? "✅" : status === "failure" ? "❌" : "⚠️";
+                return `| ${icon} ${r.name} | ${status} |`;
+              });
+              return `| Check | Result |\n| --- | --- |\n${rows.join("\n")}\n\n`;
+            }
+
+            function buildFailures(details) {
+              if (details.length === 0) return "";
+              const sections = details
+                .map((d) => {
+                  const lines = d.details.length
+                    ? d.details.map((x) => `- ${x}`).join("\n")
+                    : "- (no annotations available)";
+                  return `### ${d.name}\n\n${lines}`;
+                })
+                .join("\n\n");
+              return `### Failed checks\n\n${sections}\n\n`;
+            }
+
+            // Post (or update) the summary comment.
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number: prNumber,
+              per_page: 100,
+            });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: prNumber,
+                body,
+              });
+            }
+
+            core.setOutput("ci_passed", String(failed.length === 0));
+            core.setOutput("failed_count", String(failed.length));
+      - name: Log CI outcome
+        run: |
+          echo "CI passed: ${{ steps.ci.outputs.ci_passed }}"
+          echo "Failed checks: ${{ steps.ci.outputs.failed_count }}"
+
+  copilot-review:
+    name: Request Copilot code review
+    if: ${{ github.event.pull_request.draft == false }}
+    needs: wait-for-ci
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.3
+      - name: Request Copilot review
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const prNumber = Number(process.env.PR_NUMBER);
+
+            // Avoid an infinite review-request loop: if this workflow was itself
+            // triggered by requesting a review from the Copilot bot, do nothing.
+            const req = context.payload.requested_reviewer;
+            if (req && req.login === "copilot-pull-request-reviewer[bot]") {
+              console.log("Triggered by a Copilot review request; skipping.");
+              return;
+            }
+
+            // Don't request Copilot review if it has already been requested.
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+            const alreadyRequested = (pr.requested_reviewers || []).some(
+              (r) => r.login === "copilot-pull-request-reviewer[bot]",
+            );
+            if (alreadyRequested) {
+              console.log("Copilot review already requested; skipping.");
+              return;
+            }
+
+            try {
+              await github.rest.pulls.requestReviewers({
+                owner,
+                repo,
+                pull_number: prNumber,
+                reviewers: ["copilot-pull-request-reviewer[bot]"],
+              });
+            } catch (e) {
+              // Copilot code review is not available for every account/repo.
+              // Surface a clear message rather than failing the workflow.
+              core.warning(
+                "Could not request Copilot code review: " + (e.message || String(e)) +
+                ". If Copilot code review is not enabled for this repository, " +
+                "the review-request step is a no-op.",
+              );
+              return;
+            }
+
+            // The requestReviewers endpoint can return 2xx even when Copilot
+            // code review is not enabled for the account/repo, silently never
+            // delivering a review. Verify the request actually registered and
+            // warn clearly if it did not, so the step is never a silent no-op.
+            await new Promise((resolve) => setTimeout(resolve, 10000));
+            const { data: check } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+            const registered = (check.requested_reviewers || []).some(
+              (r) => r.login === "copilot-pull-request-reviewer[bot]",
+            );
+            if (registered) {
+              console.log("Requested Copilot code review for PR #" + prNumber);
+            } else {
+              core.warning(
+                "Copilot code review request was accepted but the Copilot reviewer did not " +
+                "register. This usually means Copilot code review is not enabled for this " +
+                "repository or account (it requires a Copilot license). The CI summary has " +
+                "still been posted; only the Copilot review step is a no-op.",
+              );
+            }
