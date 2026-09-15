@@ -38,14 +38,14 @@ JavaScript/Astro assumptions alone.
    behavior or tests.
 8. **Testing.** If behavior changes, confirm tests were added or updated and
    that `pnpm check:all` would still pass. Flag missing test coverage for
-   non-trivial logic changes.
+   nontrivial logic changes.
 
 ## What to prioritize
 
 Focus review effort on the actual diff. High-signal issues (correctness,
 security, schema violations, objectivity) should be raised first. Style-only
-nits that the project's own tooling already enforces (Prettier, ESLint, CSpell)
-are lower priority — the CI checks cover those.
+nits that the project's own tooling already enforces (Prettier, ESLint, the
+spell checker) are lower priority — the CI checks cover those.
 
 ## Tone and format
 
