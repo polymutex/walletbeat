@@ -31,8 +31,25 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Run real check:ci (exact failing command)
+      - name: Run check:ci with concurrent inkscape probe
         shell: pwsh
-        run: pnpm run check:ci
+        run: |
+          # Start a background probe that repeatedly times `inkscape --version`
+          # exactly like findInkscape() does, so we capture spawnSync behavior
+          # under the same CPU load as the concurrent Astro build.
+          $probe = Start-Job -ScriptBlock {
+            for ($i = 1; $i -le 60; $i++) {
+              $sw = [System.Diagnostics.Stopwatch]::StartNew()
+              $out = & node -e "const{spawnSync}=require('child_process');const r=spawnSync('inkscape',['--version'],{encoding:'utf8',timeout:30000});console.log(JSON.stringify({status:r.status,stdout:(r.stdout||'').slice(0,40),err:(r.error&&(r.error.code||r.error.message))||null}));" 2>&1
+              $sw.Stop()
+              Write-Host "PROBE $i elapsed=$($sw.ElapsedMilliseconds)ms out=$out"
+              Start-Sleep -Seconds 2
+            }
+          }
+          pnpm run check:ci
+          $exit = $LASTEXITCODE
+          Receive-Job $probe
+          Stop-Job $probe
+          exit $exit
         env:
           WALLETBEAT_ENV: CI
