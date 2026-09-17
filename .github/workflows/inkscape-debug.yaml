@@ -31,12 +31,6 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Time inkscape --version under load
-        shell: pwsh
-        run: |
-          $sw = [System.Diagnostics.Stopwatch]::StartNew()
-          node -e "const{spawnSync}=require('child_process');const t=Date.now();const r=spawnSync('inkscape',['--version'],{encoding:'utf8',timeout:30000});console.log('ELAPSED_MS='+(Date.now()-t));console.log('status',r.status);console.log('stdout',JSON.stringify(r.stdout));console.log('error',r.error&&r.error.message)"
-          $sw.Stop()
       - name: Run real check:ci (exact failing command)
         shell: pwsh
         run: pnpm run check:ci
