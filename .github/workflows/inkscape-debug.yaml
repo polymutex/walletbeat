@@ -57,9 +57,9 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $log = Join-Path $env:TEMP 'inkscape-diagnostic.log'
+          $log = Join-Path $PWD 'inkscape-diagnostic.log'
           if (Test-Path $log) {
             Get-Content $log
           } else {
-            Write-Host "NO DIAGNOSTIC LOG at $log"
+            Write-Host "NO DIAGNOSTIC LOG at $log (pwd=$PWD)"
           }

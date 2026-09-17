@@ -285,7 +285,7 @@ function findInkscape(): string[] | null {
 					stderr: (result.stderr ?? '').slice(0, 60),
 				})
 
-				fs.writeFileSync(path.join(os.tmpdir(), 'inkscape-diagnostic.log'), line + '\n', {
+				fs.writeFileSync(path.join(process.cwd(), 'inkscape-diagnostic.log'), line + '\n', {
 					flag: 'a',
 				})
 			} catch {
