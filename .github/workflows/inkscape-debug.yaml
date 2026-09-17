@@ -57,9 +57,19 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $log = Join-Path $PWD 'inkscape-diagnostic.log'
-          if (Test-Path $log) {
-            Get-Content $log
-          } else {
-            Write-Host "NO DIAGNOSTIC LOG at $log (pwd=$PWD)"
+          $paths = @(
+            (Join-Path $env:TEMP 'inkscape-diagnostic.log'),
+            (Join-Path $env:TMP 'inkscape-diagnostic.log'),
+            (Join-Path $env:RUNNER_TEMP 'inkscape-diagnostic.log')
+          )
+          $found = $false
+          foreach ($p in $paths) {
+            if (Test-Path $p) {
+              $found = $true
+              Write-Host "=== $p ==="
+              Get-Content $p
+            }
+          }
+          if (-not $found) {
+            Write-Host "NO DIAGNOSTIC LOG. TEMP=$env:TEMP TMP=$env:TMP RUNNER_TEMP=$env:RUNNER_TEMP"
           }

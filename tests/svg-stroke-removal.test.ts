@@ -275,6 +275,7 @@ function findInkscape(): string[] | null {
 		if (candidate[0] === 'inkscape') {
 			try {
 				const line = JSON.stringify({
+					tmpdir: os.tmpdir(),
 					elapsed: Date.now() - t0,
 					status: result.status,
 					signal: result.signal,
@@ -285,9 +286,14 @@ function findInkscape(): string[] | null {
 					stderr: (result.stderr ?? '').slice(0, 60),
 				})
 
-				fs.writeFileSync(path.join(process.cwd(), 'inkscape-diagnostic.log'), line + '\n', {
-					flag: 'a',
-				})
+				const p = path.join(os.tmpdir(), 'inkscape-diagnostic.log')
+
+				fs.writeFileSync(p, line + '\n', { flag: 'a' })
+				fs.writeFileSync(
+					path.join(process.env.TEMP ?? os.tmpdir(), 'inkscape-diagnostic.log'),
+					line + '\n',
+					{ flag: 'a' },
+				)
 			} catch {
 				/* ignore */
 			}
