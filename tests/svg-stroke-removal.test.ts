@@ -265,10 +265,33 @@ function findInkscape(): string[] | null {
 	]
 
 	for (const candidate of candidates) {
+		const t0 = Date.now()
 		const result = spawnSync(candidate[0], [...candidate.slice(1), '--version'], {
 			encoding: 'utf8',
 			timeout: 30000,
 		})
+
+		// [DEBUG] Record exact spawnSync result for flaky-diagnosis.
+		if (candidate[0] === 'inkscape') {
+			try {
+				const line = JSON.stringify({
+					elapsed: Date.now() - t0,
+					status: result.status,
+					signal: result.signal,
+					error: result.error
+						? String((result.error as NodeJS.ErrnoException).code ?? result.error.message)
+						: null,
+					stdout: (result.stdout ?? '').slice(0, 60),
+					stderr: (result.stderr ?? '').slice(0, 60),
+				})
+
+				fs.writeFileSync(path.join(os.tmpdir(), 'inkscape-diagnostic.log'), line + '\n', {
+					flag: 'a',
+				})
+			} catch {
+				/* ignore */
+			}
+		}
 
 		if (result.status === 0 && result.stdout.includes('Inkscape')) {
 			return candidate
