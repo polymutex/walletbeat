@@ -1,0 +1,30 @@
+name: Inkscape Windows Debug
+
+on:
+  push:
+    branches:
+      - windows-ci-test
+  workflow_dispatch:
+
+jobs:
+  probe:
+    name: Probe (${{ matrix.run }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.3
+        with:
+          fetch-depth: 0
+      - name: Install Inkscape (Windows)
+        shell: pwsh
+        run: choco install $(cat deploy/windows-packages.txt) -y
+      - name: Probe Inkscape detection
+        shell: pwsh
+        run: node tests/ci-debug/inkscape-debug.mjs
+      - name: Probe via Node spawnSync (direct)
+        shell: pwsh
+        run: node -e "const{spawnSync}=require('child_process');const r=spawnSync('inkscape',['--version'],{encoding:'utf8',timeout:30000});console.log('status',r.status);console.log('stdout',JSON.stringify(r.stdout));console.log('stderr',JSON.stringify(r.stderr));console.log('error',r.error&&r.error.message)"
