@@ -1,20 +1,29 @@
 #!/bin/bash
-# OSX-CI flake reproduction harness.
+# OSX-CI flake reproduction / fix-validation harness.
 #
 # Reproduces the Vite dependency-optimizer race that intermittently fails the
 # macOS "Run all checks" step of .github/workflows/check.yaml.
 #
+# ROOT CAUSE
+# ----------
 # check:all runs several pnpm scripts in PARALLEL (pnpm run "/^check:(astro|...)$/").
 # Three of those scripts all start a Vite process against the SAME node_modules:
-#   - check:astro       -> `astro check`   (starts Vite)
-#   - check:lint        -> `astro sync`    (starts Vite)
-#   - check:build:post:quiet -> `astro build` (starts Vite)
-# Vite's dependency optimizer writes to node_modules/.vite/deps via an atomic
-# rename of a temp dir (deps_temp_XXX -> deps). When two Vite processes race,
+#   - check:astro            -> `astro check`  (starts Vite)
+#   - check:lint             -> `astro sync`   (starts Vite)
+#   - check:build:post:quiet -> `astro build`  (starts Vite)
+# Vite's dependency optimizer writes node_modules/.vite/deps by atomically
+# renaming a temp dir (deps_temp_XXX -> deps). When two Vite processes race,
 # one loses the rename with `ENOTEMPTY: directory not empty` and the step fails.
 #
-# This harness runs the exact trio in parallel over many iterations and records
-# every failure with full Vite debug logging.
+# MODES
+# -----
+#   COLD (default): rm -rf node_modules/.vite before every iteration, then run
+#     the trio in parallel. Maximises the chance of hitting the race. Used to
+#     CONFIRM the bug.
+#   WARM: run `astro sync` ONCE up-front to pre-populate node_modules/.vite,
+#     then run the trio in parallel WITHOUT clearing the cache. Used to VALIDATE
+#     the fix: with a warm cache every parallel process takes the cache-hit path
+#     and never performs the racy rename. Set OSX_REPRO_WARM=1 to enable.
 
 set -u
 
@@ -23,6 +32,7 @@ cd "$REPO_DIR"
 
 ITERATIONS="${OSX_REPRO_ITERATIONS:-10}"
 PARALLEL="${OSX_REPRO_PARALLEL:-3}"   # number of concurrent Vite processes
+WARM="${OSX_REPRO_WARM:-0}"
 
 export VITE_DEBUG="${VITE_DEBUG:-1}"
 export DEBUG="${DEBUG:-vite:*}"
@@ -32,9 +42,18 @@ export WALLETBEAT_ENV=CI
 failures=0
 start=$(date +%s)
 
-for ((i = 1; i <= ITERATIONS; i++)); do
-	echo "=== [OSX-REPRO] iteration $i / $ITERATIONS (parallel=$PARALLEL) ==="
+if [[ "$WARM" == "1" ]]; then
+	echo "=== [OSX-REPRO] WARM mode: pre-warming Vite dep cache with a serial 'astro sync' ==="
 	rm -rf node_modules/.vite
+	pnpm run astro sync > /tmp/osx-repro-warm.log 2>&1
+	echo "=== [OSX-REPRO] pre-warm complete (cache at node_modules/.vite) ==="
+fi
+
+for ((i = 1; i <= ITERATIONS; i++)); do
+	echo "=== [OSX-REPRO] iteration $i / $ITERATIONS (parallel=$PARALLEL warm=$WARM) ==="
+	if [[ "$WARM" != "1" ]]; then
+		rm -rf node_modules/.vite
+	fi
 
 	# Launch the three Vite-triggering checks concurrently, exactly like check:all.
 	pids=()
@@ -70,7 +89,7 @@ done
 
 elapsed=$(( $(date +%s) - start ))
 echo ""
-echo "=== [OSX-REPRO] RESULT: $failures / $ITERATIONS iterations failed (${elapsed}s) ==="
+echo "=== [OSX-REPRO] RESULT: $failures / $ITERATIONS iterations failed (${elapsed}s, warm=$WARM) ==="
 if [[ "$failures" -gt 0 ]]; then
 	echo "REPRODUCED: $failures failures"
 	exit 1

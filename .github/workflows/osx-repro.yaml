@@ -8,12 +8,15 @@ on:
 
 jobs:
   reproduce:
-    name: Reproduce (${{ matrix.worker }})
+    name: Reproduce (${{ matrix.mode }}-${{ matrix.worker }})
     runs-on: macos-latest
     strategy:
       fail-fast: false
       max-parallel: 16
       matrix:
+        mode:
+          - cold
+          - warm
         worker:
           - 01
           - 02
@@ -23,14 +26,6 @@ jobs:
           - 06
           - 07
           - 08
-          - 09
-          - 10
-          - 11
-          - 12
-          - 13
-          - 14
-          - 15
-          - 16
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.3
@@ -48,10 +43,11 @@ jobs:
         env:
           OSX_REPRO_ITERATIONS: '10'
           OSX_REPRO_PARALLEL: '3'
+          OSX_REPRO_WARM: ${{ matrix.mode == 'warm' && '1' || '0' }}
       - name: Upload Vite debug logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: vite-debug-${{ matrix.worker }}
+          name: vite-debug-${{ matrix.mode }}-${{ matrix.worker }}
           path: /tmp/osx-repro-*.log
           if-no-files-found: ignore
