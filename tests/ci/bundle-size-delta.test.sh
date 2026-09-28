@@ -33,7 +33,16 @@ CURRENT_HEAD="$(git -C "$ROOT" rev-parse HEAD)"
 
 EXPECT_LARGE_INCREASE=0
 EXPECT_LARGE_DECREASE=0
+# On a pull request, CI checks out the synthetic merge commit
+# (`refs/pull/<N>/merge`), whose auto-generated message ("Merge <head> into
+# <base>") does not carry the tag. The tag lives on the PR head commit, which
+# is the merge commit's second parent, so also inspect it.
 CURRENT_HEAD_MSG="$(git -C "$ROOT" log -1 --format=%B "$CURRENT_HEAD" 2>/dev/null || true)"
+if git -C "$ROOT" rev-parse --verify -q "$CURRENT_HEAD^2" >/dev/null 2>&1; then
+	PR_HEAD_MSG="$(git -C "$ROOT" log -1 --format=%B "$CURRENT_HEAD^2" 2>/dev/null || true)"
+	CURRENT_HEAD_MSG="${CURRENT_HEAD_MSG}
+${PR_HEAD_MSG}"
+fi
 if [[ "$CURRENT_HEAD_MSG" == *"WALLETBEAT_EXPECTED_LARGE_SIZE_INCREASE"* ]]; then
 	EXPECT_LARGE_INCREASE=1
 	log "Commit declares an expected large size increase. Expecting a large size increase."
