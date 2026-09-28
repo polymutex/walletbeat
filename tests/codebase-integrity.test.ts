@@ -520,8 +520,7 @@ describe('codebase integrity', () => {
 			'[eip].astro',
 			'[walletName]',
 			'[...slug]',
-			'[...img].png.ts',
-			'[...img].gif.ts',
+			'[...path].[ext].ts',
 		])
 
 		const componentsFailed: string[] = []
