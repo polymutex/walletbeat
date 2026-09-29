@@ -10,7 +10,10 @@ import {
 	BugBountyPlatform,
 	BugBountyProgramAvailability,
 } from '@/schema/features/security/bug-bounty-program'
-import { BasicUnlockMechanism } from '@/schema/features/security/duress-resistance'
+import {
+	BasicUnlockMechanism,
+	BasicUnlockMechanismSupport,
+} from '@/schema/features/security/duress-resistance'
 import {
 	KeyGenerationLocation,
 	MultiPartyKeyReconstruction,
@@ -23,7 +26,14 @@ import {
 	KeyStorageMechanism,
 	SecureRngSource,
 } from '@/schema/features/security/security-best-practices'
+import {
+	CallDataDisplay,
+	ComplexBenchmarkTransactions,
+	DataDisplayOptions,
+	MessageSigningDetails,
+} from '@/schema/features/security/transaction-legibility'
 import { type ChainConfigurability } from '@/schema/features/self-sovereignty/chain-configurability'
+import { BuiltInSwapDefaultApprovalBehavior } from '@/schema/features/self-sovereignty/permissions-management'
 import {
 	TransactionSubmissionL2Support,
 	TransactionSubmissionL2Type,
@@ -352,10 +362,12 @@ export const uniswapWallet: SoftwareWallet = {
 							},
 						],
 						mechanisms: {
-							[BasicUnlockMechanism.PIN]: false,
-							[BasicUnlockMechanism.PASSWORD]: true,
-							[BasicUnlockMechanism.BIOMETRIC]: false,
-							[BasicUnlockMechanism.PATTERN]: false,
+							[BasicUnlockMechanism.PIN]: notSupported,
+							[BasicUnlockMechanism.PASSWORD]: supported({
+								type: BasicUnlockMechanismSupport.REQUIRED,
+							}),
+							[BasicUnlockMechanism.BIOMETRIC]: notSupported,
+							[BasicUnlockMechanism.PATTERN]: notSupported,
 						},
 					},
 					duressMode: notSupported,
@@ -368,10 +380,12 @@ export const uniswapWallet: SoftwareWallet = {
 							url: 'https://github.com/Uniswap/interface/blob/da6d36f71c4d2fd665b0aae1a052a4ffda917b31/apps/mobile/src/features/biometrics/biometrics-utils.ts#L34-L84',
 						},
 						mechanisms: {
-							[BasicUnlockMechanism.PIN]: false,
-							[BasicUnlockMechanism.PASSWORD]: false,
-							[BasicUnlockMechanism.BIOMETRIC]: true,
-							[BasicUnlockMechanism.PATTERN]: false,
+							[BasicUnlockMechanism.PIN]: notSupported,
+							[BasicUnlockMechanism.PASSWORD]: notSupported,
+							[BasicUnlockMechanism.BIOMETRIC]: supported({
+								type: BasicUnlockMechanismSupport.OPTIONAL,
+							}),
+							[BasicUnlockMechanism.PATTERN]: notSupported,
 						},
 					},
 					duressMode: notSupported,
@@ -435,10 +449,112 @@ export const uniswapWallet: SoftwareWallet = {
 					secureRng: SecureRngSource.LIBRARY_RNG,
 				},
 			},
-			transactionLegibility: null,
+			transactionLegibility: {
+				ref: refTodo,
+				erc4361: null,
+				erc7730: supported({
+					ref: [
+						{
+							explanation: 'Uniswap Wallet decodes a USDC approval, showing the approved amount.',
+							file: 'public/references/wallets/uniswap/screenshots/2026-09-23-uniswap-erc7730-usdc-approval.png',
+							label: 'Uniswap Wallet transaction request for a USDC approval',
+						},
+						{
+							explanation:
+								'Uniswap Wallet does not decode an Aave supply; it only shows the amount sent.',
+							file: 'public/references/wallets/uniswap/screenshots/2026-09-23-uniswap-erc7730-aave-supply.png',
+							label: 'Uniswap Wallet transaction request for an Aave supply',
+						},
+						{
+							explanation:
+								'Uniswap Wallet does not decode the Aave supply nested within a Safe{Wallet} transaction; it only shows a contract interaction with the `execTransaction` function.',
+							file: 'public/references/wallets/uniswap/screenshots/2026-09-23-uniswap-erc7730-safe-aave-supply.png',
+							label: 'Uniswap Wallet transaction request for a Safe{Wallet} Aave supply',
+						},
+						{
+							explanation:
+								'Uniswap Wallet does not decode the inner calls of a Safe{Wallet} MultiSend batching a USDC approval and Aave supply; it only shows a contract interaction with the `execTransaction` function.',
+							file: 'public/references/wallets/uniswap/screenshots/2026-09-23-uniswap-erc7730-safe-batch-approve-supply.png',
+							label:
+								'Uniswap Wallet transaction request for a Safe{Wallet} batched approve and supply',
+						},
+						{
+							explanation:
+								'Uniswap Wallet does not decode a batched USDC approval and Aave supply from an EOA; it only shows a contract interaction with the execute function and a warning that the request contains multiple transactions.',
+							file: 'public/references/wallets/uniswap/screenshots/2026-09-23-uniswap-erc7730-batch-approve-supply.png',
+							label: 'Uniswap Wallet transaction request for a batched approve and supply',
+						},
+					],
+					[ComplexBenchmarkTransactions.USDC_APPROVAL]: {
+						decoded: DataDisplayOptions.SHOWN_BY_DEFAULT,
+					},
+					[ComplexBenchmarkTransactions.AAVE_SUPPLY]: {
+						decoded: DataDisplayOptions.NOT_IN_UI,
+					},
+					[ComplexBenchmarkTransactions.SAFEWALLET_AAVE_SUPPLY_NESTED]: {
+						decoded: DataDisplayOptions.NOT_IN_UI,
+					},
+					[ComplexBenchmarkTransactions.SAFEWALLET_AAVE_USDC_APPROVE_SUPPLY_BATCH_NESTED_MULTISEND]:
+						{
+							decoded: DataDisplayOptions.NOT_IN_UI,
+						},
+					[ComplexBenchmarkTransactions.AAVE_USDC_APPROVE_SUPPLY_BATCH_NESTED_MULTISEND]: {
+						decoded: DataDisplayOptions.NOT_IN_UI,
+					},
+				}),
+				erc8213: supported({
+					ref: [
+						{
+							explanation:
+								'Uniswap Wallet only lists the EIP-712 domain and message values as flattened key/value pairs, the EIP-712 struct itself is not shown. No domain hash, message hash or EIP-712 digest is shown.',
+							file: 'public/references/wallets/uniswap/screenshots/2026-09-24-uniswap-erc8213-eip712-message.png',
+							label: 'Uniswap Wallet signature request for an EIP-712 message',
+						},
+						{
+							explanation:
+								'Expanding the transaction details shows the function name and a truncated raw calldata hex `0x617b…0000` with a copy button. The full raw hex, formatted calldata and calldata digest are not shown.',
+							file: 'public/references/wallets/uniswap/screenshots/2026-09-24-uniswap-erc8213-calldata.png',
+							label: 'Uniswap Wallet transaction details with truncated raw calldata',
+						},
+					],
+					calldataDisplay: {
+						[CallDataDisplay.RAW_HEX]: DataDisplayOptions.NOT_IN_UI,
+						[CallDataDisplay.COPY_HEX_TO_CLIPBOARD]: DataDisplayOptions.SHOWN_OPTIONALLY,
+						[CallDataDisplay.FORMATTED]: DataDisplayOptions.NOT_IN_UI,
+						[CallDataDisplay.CALLDATA_DIGEST]: DataDisplayOptions.NOT_IN_UI,
+					},
+					messageSigningLegibility: {
+						[MessageSigningDetails.EIP712_STRUCT]: DataDisplayOptions.NOT_IN_UI,
+						[MessageSigningDetails.DOMAIN_HASH]: DataDisplayOptions.NOT_IN_UI,
+						[MessageSigningDetails.MESSAGE_HASH]: DataDisplayOptions.NOT_IN_UI,
+						[MessageSigningDetails.EIP712_DIGEST]: DataDisplayOptions.NOT_IN_UI,
+					},
+				}),
+				transactionDetailsDisplay: null,
+				transactionSimulations: null,
+			},
 		},
 		selfSovereignty: {
-			permissionsManagement: notSupported,
+			permissionsManagement: {
+				ref: [
+					{
+						explanation:
+							'Uniswap Wallet swap review screen for a 1 USDC to ETH swap, before confirming with "Swap". No approve step or approval amount is shown to the user here.',
+						file: 'public/references/wallets/uniswap/screenshots/2026-09-16-swap-review.png',
+						label: 'Uniswap Wallet swap review screen for a 1 USDC to ETH swap',
+						lastRetrieved: '2026-09-16',
+					},
+					{
+						explanation:
+							'The onchain Approval event emitted for that swap shows an unlimited approval to the `Permit2` contract, not the 1 USDC swap amount, and not disclosed anywhere in the swap review UI.',
+						file: 'public/references/wallets/uniswap/screenshots/2026-09-16-approve-unlimited-event.png',
+						label: 'Decoded Approval event log showing an unlimited (max) approval value',
+						lastRetrieved: '2026-09-16',
+					},
+				],
+				approvalsManagement: notSupported,
+				builtInSwapApprovals: BuiltInSwapDefaultApprovalBehavior.UNLIMITED_AND_UNDISCLOSED,
+			},
 			transactionSubmission: {
 				l1: {
 					ref: refTodo,

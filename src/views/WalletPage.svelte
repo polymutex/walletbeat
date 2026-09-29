@@ -12,6 +12,7 @@
 		normalizeExampleRatings,
 		ratingIcons,
 		ratingToColor,
+		ratingToTextColor,
 		Verifiability,
 	} from '@/schema/attributes'
 	import { hasSingleVariant, type Variant } from '@/schema/variants'
@@ -19,16 +20,7 @@
 	import type { Ladders } from '@/schema/ladders'
 	import type { AttributeTree, EvaluationTree } from '@/schema/attribute-groups'
 	import { ContentType, isTypographicContent } from '@/types/content'
-	import type { AddressCorrelationDetailsProps } from '@/types/content/address-correlation-details'
-	import type { ChainVerificationDetailsProps } from '@/types/content/chain-verification-details'
-	import type { FundingDetailsProps } from '@/types/content/funding-details'
-	import type { PrivateTransfersDetailsProps } from '@/types/content/private-transfers-details'
-	import type { ScamAlertDetailsProps } from '@/types/content/scam-alert-details'
-	import type { SecurityAuditsDetailsProps } from '@/types/content/security-audits-details'
-	import type { TransactionInclusionDetailsProps } from '@/types/content/transaction-inclusion-details'
-	import type { AccountRecoveryDetailsProps } from '@/types/content/account-recovery-details'
-	import type { AccountUnruggabilityDetailsProps } from '@/types/content/account-unruggability-details'
-	import type { UnratedAttributeProps } from '@/types/content/unrated-attribute'
+	import { evaluationDetailRenderData } from '@/types/content/evaluation-details'
 	import {
 		computePieSlices,
 		overallRatingPieLevels,
@@ -53,7 +45,7 @@
 		calculateAttributeGroupScore,
 		calculateOverallScore,
 	} from '@/schema/attribute-groups'
-	import { toFullyQualified } from '@/schema/reference'
+	import { mergeRefs, toFullyQualified } from '@/schema/reference'
 	import { getAttributeOverride } from '@/schema/wallet'
 	import { renderStrings, slugifyCamelCase } from '@/types/utils/text'
 	import { getWalletStageAndLadder } from '@/utils/stage'
@@ -61,11 +53,6 @@
 	import { scoreToColor } from '@/utils/colors'
 	import { getWalletEvalStrings } from '@/utils/evaluation-content'
 	import { getAttributeStagesForWallet } from '@/utils/stage-attributes'
-
-
-	type WalletPageWallet<_AttributeGroupId extends string> =
-		Omit<RatedWallet<_AttributeGroupId>, 'ladders'> &
-		Partial<Pick<RatedWallet<_AttributeGroupId>, 'ladders'>>
 
 
 	// Props
@@ -78,7 +65,7 @@
 	}: {
 		ladders: Ladders<_AttributeGroupId>
 		attributeTree: AttributeTree<_AttributeGroupId>
-		wallet: WalletPageWallet<_AttributeGroupId>
+		wallet: RatedWallet<_AttributeGroupId>
 		showStage?: boolean,
 		showScores?: boolean,
 	} = $props()
@@ -337,6 +324,28 @@
 		calculateOverallScore(attributeTree, wallet.overall, () => true),
 	)
 
+	const allPageReferences = $derived.by(() => {
+		const refs = Object.values(attributeTree).flatMap(attrGroup => {
+			const evalGroup = evalTree[attrGroup.id]
+
+			if (!evalGroup) {
+				return []
+			}
+
+			return attrGroup.attributes.flatMap(({ attribute }) => {
+				const evalAttr = evalGroup[attribute.id]
+
+				if (evalAttr === undefined || evalAttr.evaluation.outcome.rating === Rating.EXEMPT) {
+					return []
+				}
+
+				return toFullyQualified(evalAttr.evaluation.references)
+			})
+		})
+
+		return mergeRefs(...refs)
+	})
+
 
 	// Components
 	import { Github, Globe } from 'lucide-static'
@@ -349,6 +358,7 @@
 	import TransactionInclusionDetails from '@/views/attributes/self-sovereignty/TransactionInclusionDetails.svelte'
 	import FundingDetails from '@/views/attributes/transparency/FundingDetails.svelte'
 	import UnratedAttribute from '@/views/attributes/UnratedAttribute.svelte'
+	import DataSourceCredits from '@/views/DataSourceCredits.svelte'
 	import ReferenceLinks from '@/views/ReferenceLinks.svelte'
 	import ScoreBadge from '@/views/ScoreBadge.svelte'
 	import WalletStageBadge from '@/views/WalletStageBadge.svelte'
@@ -652,6 +662,12 @@
 			{/if}
 		{/each}
 
+		{#if allPageReferences.length > 0}
+			<div data-scroll-item="inline-detached padding-match-end" data-column>
+				<DataSourceCredits references={allPageReferences} />
+			</div>
+		{/if}
+
 		{#if walletNews.length > 0 && newsIsVeryStale}
 			<hr />
 			<div data-scroll-item="inline-detached padding-match-end" data-column>
@@ -877,6 +893,7 @@
 		id={slugifyCamelCase(attribute.id)}
 		aria-label={attribute.displayName}
 		style:--accent={ratingToColor(evalAttr.evaluation.outcome.rating)}
+		style:--accent-textColor={ratingToTextColor(evalAttr.evaluation.outcome.rating)}
 		style:---pie-timeline={pieTimelineByHref.get(`#${slugifyCamelCase(attribute.id)}`)}
 		data-rating={evalAttr.evaluation.outcome.rating.toLowerCase()}
 	>
@@ -1044,32 +1061,31 @@
 						/>
 
 					{:else if evalAttr.evaluation.details}
-						{@const componentName = evalAttr.evaluation.details.component.component}
-						{@const componentProps = evalAttr.evaluation.details.component.componentProps}
 						{@const outcome = evalAttr.evaluation.outcome}
+						{@const renderData = evaluationDetailRenderData(evalAttr.evaluation.details.component, outcome)}
 						{@const references = evalAttr.evaluation.references && toFullyQualified(evalAttr.evaluation.references)}
 
 						<div data-column>
-							{#if componentName === 'AddressCorrelationDetails'}
-								<AddressCorrelationDetails {...(componentProps as AddressCorrelationDetailsProps)} {wallet} />
-							{:else if componentName === 'PrivateTransfersDetails'}
-								<PrivateTransfersDetails {...(componentProps as PrivateTransfersDetailsProps)} {wallet} />
-							{:else if componentName === 'ChainVerificationDetails'}
-								<ChainVerificationDetails {...(componentProps as ChainVerificationDetailsProps)} {wallet} refs={references} />
-							{:else if componentName === 'ScamAlertDetails'}
-								<ScamAlertDetails {...(componentProps as ScamAlertDetailsProps)} {wallet} {outcome} />
-							{:else if componentName === 'SecurityAuditsDetails'}
-								<SecurityAuditsDetails {...(componentProps as SecurityAuditsDetailsProps)} {wallet} metadata={outcome.metadata!} />
-							{:else if componentName === 'TransactionInclusionDetails'}
-								<TransactionInclusionDetails {...(componentProps as TransactionInclusionDetailsProps)} {wallet} />
-							{:else if componentName === 'FundingDetails'}
-								<FundingDetails {...(componentProps as FundingDetailsProps)} {wallet} />
-							{:else if componentName === 'AccountRecoveryDetails'}
-								<AccountRecoveryDetails {...(componentProps as AccountRecoveryDetailsProps)} {wallet} metadata={outcome.metadata!} />
-							{:else if componentName === 'AccountUnruggabilityDetails'}
-								<AccountUnruggabilityDetails {...(componentProps as AccountUnruggabilityDetailsProps)} {wallet} metadata={outcome.metadata!} />
-							{:else if componentName === 'UnratedAttribute'}
-								<UnratedAttribute {...(componentProps as UnratedAttributeProps<OutcomeMetadata>)} {wallet} />
+							{#if renderData.component === 'AddressCorrelationDetails'}
+								<AddressCorrelationDetails {...renderData.componentProps} {wallet} />
+							{:else if renderData.component === 'PrivateTransfersDetails'}
+								<PrivateTransfersDetails {...renderData.componentProps} {wallet} />
+							{:else if renderData.component === 'ChainVerificationDetails'}
+								<ChainVerificationDetails {...renderData.componentProps} {wallet} refs={references} />
+							{:else if renderData.component === 'ScamAlertDetails'}
+								<ScamAlertDetails {...renderData.componentProps} {wallet} outcome={renderData.outcome} />
+							{:else if renderData.component === 'SecurityAuditsDetails'}
+								<SecurityAuditsDetails {...renderData.componentProps} {wallet} metadata={renderData.outcome.metadata} />
+							{:else if renderData.component === 'TransactionInclusionDetails'}
+								<TransactionInclusionDetails {...renderData.componentProps} {wallet} />
+							{:else if renderData.component === 'FundingDetails'}
+								<FundingDetails {...renderData.componentProps} {wallet} />
+							{:else if renderData.component === 'AccountRecoveryDetails'}
+								<AccountRecoveryDetails {...renderData.componentProps} {wallet} metadata={renderData.outcome.metadata} />
+							{:else if renderData.component === 'AccountUnruggabilityDetails'}
+								<AccountUnruggabilityDetails {...renderData.componentProps} {wallet} metadata={renderData.outcome.metadata} />
+							{:else if renderData.component === 'UnratedAttribute'}
+								<UnratedAttribute {...renderData.componentProps} {wallet} />
 							{/if}
 						</div>
 
@@ -2129,6 +2145,7 @@
 
 			:global(.navigation-items a > .pie-navigation-icon) {
 				--icon-size: calc(var(---slice-label-size) * 1px);
+				color: #fff;
 
 				position: absolute;
 				inset: var(---pie-origin-y) auto auto var(---pie-origin-x);
@@ -2136,7 +2153,7 @@
 				rotate: calc(-1 * (var(---pie-rotate) + var(---slice-mid-angle)));
 				filter: var(
 					---linked-icon-filter,
-					contrast(0.5) brightness(3) opacity(0.7)
+					opacity(0.75)
 						drop-shadow(1px 2px 3px rgb(0 0 0 / 0.15))
 				);
 				transition-property: filter;
