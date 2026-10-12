@@ -11,7 +11,8 @@
 		"paths": {
 			"@/data/*": ["./data/*"],
 			"@/tests/*": ["./tests/*"],
-			"@/*": ["src/*"]
+			"@/*": ["src/*"],
+			"pi-ask-user/index.ts": ["./src/tools/wallet-data-collection/agent/pi-ask-user.d.ts"]
 		},
 		"lib": ["esnext"],
 		"forceConsistentCasingInFileNames": false
