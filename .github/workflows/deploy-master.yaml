@@ -35,9 +35,25 @@ jobs:
           sudo apt-get install -y $(cat deploy/debian-packages.txt)
         env:
           DEBIAN_FRONTEND: noninteractive
+      - name: Restore Inkscape DMG
+        if: runner.os == 'macOS'
+        id: inkscape-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/walletbeat-macos
+          key: inkscape-dmg-1.4.4-${{ runner.arch }}
       - name: Install packages (macOS)
         if: runner.os == 'macOS'
-        run: brew install --cask $(cat deploy/macos-packages.txt)
+        env:
+          WALLETBEAT_MACOS_CACHE_DIR: ${{ runner.temp }}/walletbeat-macos
+        run: |
+          ./deploy/install-macos-packages.sh
+      - name: Save Inkscape DMG
+        if: runner.os == 'macOS' && steps.inkscape-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/walletbeat-macos
+          key: ${{ steps.inkscape-cache.outputs.cache-primary-key }}
       - name: Install packages (Windows)
         if: runner.os == 'Windows'
         shell: bash
