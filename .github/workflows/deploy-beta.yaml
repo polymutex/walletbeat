@@ -37,7 +37,16 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
       - name: Install packages (macOS)
         if: runner.os == 'macOS'
-        run: brew install --cask $(cat deploy/macos-packages.txt)
+        env:
+          WALLETBEAT_MACOS_CACHE_DIR: ${{ runner.temp }}/walletbeat-macos
+        run: |
+          ./deploy/install-macos-packages.sh
+      - name: Cache Inkscape DMG
+        if: runner.os == 'macOS'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/walletbeat-macos
+          key: inkscape-dmg-1.4.4-${{ runner.arch }}
       - name: Install packages (Windows)
         if: runner.os == 'Windows'
         shell: bash
