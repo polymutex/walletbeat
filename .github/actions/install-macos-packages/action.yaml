@@ -1,0 +1,30 @@
+name: Install macOS packages
+description: >-
+  Ensures the Inkscape DMG exists locally — restoring it from the GitHub
+  Actions cache when possible, otherwise downloading and verifying it — then
+  installs it. Caches the verified DMG when it had to be downloaded so later
+  runs do not reach the flaky media.inkscape.org CDN.
+
+runs:
+  using: composite
+  steps:
+    - name: Restore Inkscape DMG
+      id: inkscape-cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ runner.temp }}/walletbeat-macos
+        key: macos-packages-${{ hashFiles('deploy/macos-packages.txt') }}-${{ runner.arch }}
+
+    - name: Install packages
+      shell: bash
+      env:
+        WALLETBEAT_MACOS_CACHE_DIR: ${{ runner.temp }}/walletbeat-macos
+      run: |
+        "${{ github.workspace }}/deploy/install-macos-packages.sh"
+
+    - name: Save Inkscape DMG
+      if: steps.inkscape-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ runner.temp }}/walletbeat-macos
+        key: ${{ steps.inkscape-cache.outputs.cache-primary-key }}
