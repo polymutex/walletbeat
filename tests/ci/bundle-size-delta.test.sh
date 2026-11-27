@@ -20,7 +20,7 @@ set -euo pipefail
 # It is invoked only by a dedicated CI workflow on pull requests.
 # It can be invoked manually with: pnpm run check:build:size-delta
 
-# Known reference branches, in priority order.
+# Known reference branches, in priority order. (control PR)
 REFERENCES=('master' 'beta')
 
 log() {
